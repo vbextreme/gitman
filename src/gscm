@@ -6,7 +6,7 @@ our $VERSION = 0.0;
 
 =head1 NAME
 
-Git Package Manager
+Git Source Code Manager v$VERSION
 
 =head2 SYNOPSIS
 
