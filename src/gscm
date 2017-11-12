@@ -1,0 +1,45 @@
+#!/usr/bin/env perl
+
+our $VERSION = 0.0;
+
+=pod
+
+=head1 NAME
+
+Git Package Manager
+
+=head2 SYNOPSIS
+
+=head2 USAGE
+
+=head2 COPYRIGHT
+
+Copyright vbextreme 2017
+License gplv3
+
+=cut
+
+use strict;
+use warnings;
+use lib '.' ;
+use JSON;
+
+my $defConfig = json_load("test.json");
+
+foreach (keys %{$defConfig}){
+	print "$_ = $defConfig->{$_}\n";
+}
+
+
+sub json_load{
+	my ($fname) = @_;
+	my $oldrt = $/;
+	local $/ = undef;
+	open my $fd, "<", "./test.json" or die "fail open test.json\n$!";
+	my $fjs = <$fd>;
+	$/ = $oldrt;
+	return decode_json($fjs);
+}
+
+
+
