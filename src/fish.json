@@ -1,0 +1,20 @@
+{
+	"repository":"https://github.com/fish-shell/fish-shell.git",
+	"name":"fish-shell",
+	"tag":"",
+	"branch":"master",
+	"dependency":{
+		"fedora":["ncurses-dev"],
+		"debian":["libncurses-dev"],
+		"ubuntu":["libncurses-dev"]
+	},
+	"build": {
+		"common":["./autoreconf --no-recursive",
+			 "./configure",
+			 "./make -j $DEFAULT_JOBS"
+			 ]
+	},
+	"install":{
+		"common":["make install"]
+	}
+}

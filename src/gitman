@@ -1,0 +1,156 @@
+#!/usr/bin/env perl
+
+our $VERSION = 0.0;
+
+=pod
+
+=head1 NAME
+
+gitman v$VERSION
+
+=head2 SYNOPSIS
+
+Git Manager
+
+=head2 INSTALL
+fedora perl-json
+debian/ubuntu libjson-perl
+
+=head2 USAGE
+
+=head2 COPYRIGHT
+
+Copyright vbextreme 2017
+License gplv3
+
+=cut
+
+use strict;
+use warnings;
+use Cwd;
+use JSON;
+
+my $GITMAN_DIR = '/etc/gitman';
+
+my %OPT = (
+	help => \&gmUsage,
+	dependency => \&gmDependency,
+	upgrade => \&gmUpgrade
+);
+
+my %DISTROPM = ( 
+	fedora => 'dnf',
+	debian => 'apt-get',
+	ubuntu => 'apt-get'
+);
+
+my %PM_INSTALL = ( 
+	fedora => 'install',
+	debian => 'install',
+	ubuntu => 'install'
+);
+
+
+my $default_json = loadJson("default.json");
+
+push @ARGV, 'help' if scalar @ARGV < 1;
+
+gmUsage() unless exists $OPT{$ARGV[0]};
+
+$OPT{$ARGV[0]}->();
+
+sub gmUsage{
+	print "todo\n";
+	exit 0;
+}
+
+sub depsInstall{
+	my ($hdep) = @_;
+	
+	my $localDistro = $default_json->{distro};
+	unless (exists $hdep->{$localDistro}){
+		$localDistro = 'common' ;
+		die "unable to get dependency\n" unless exists $hdep->{$localDistro};
+	}
+	
+	my $si;
+	foreach (@{$hdep->{$localDistro}}){
+		$si .= " $_";
+	}
+	$si = $DISTROPM{$default_json->{distro}} . ' ' . $PM_INSTALL{$default_json->{distro}} . $si;
+	
+	local $/=undef;
+	system($si);
+	die "fail to install dependency\nreturn:$?\n" if $?;
+}
+
+sub gmDependency{
+	gmUsage() unless defined $ARGV[1];
+	my ($fjson) = $ARGV[1];
+	my $json = loadJson($default_json->{repository_local} . "/${fjson}.json");
+	depsInstall($json->{dependency}) if $json->{dependency};
+}
+
+sub gitClone{
+	my ($name,$repo,$branch,$tag) = @_;
+	my $dir = getcwd;
+	chdir $default_json->{sources} or die "fail to enter in " . "$default_json->{sources}\n";
+	system("git clone -b $branch $repo");
+	die "fail git clone $repo\nreturn:$?\n" if $?;
+	if (defined $tag && $tag ne ''){
+		chdir $default_json->{sources} . "/$name" or die "fail to enter in " . $default_json->{sources} . "/$name\n";
+		system("git checkout tags/$tag");
+		die "fail git tags $repo\nreturn:$?\n" if $?;
+	}
+	chdir $dir;
+}
+
+sub gitPull{
+	my ($name,$branch) = @_;
+	my $dir = getcwd;
+	chdir $default_json->{sources} . "/$name" or die "fail to enter in " . $default_json->{sources} . "/$name\n";
+	system("git pull origin $branch");
+	die "fail git pull $name\nreturn:$?\n" if $?;
+	chdir $dir;
+}
+
+sub gmUpgrade{
+	gmUsage() unless defined $ARGV[1];
+	my ($fjson) = $ARGV[1];
+	my $json = loadJson($default_json->{repository_local} . "/${fjson}.json");
+	
+	if( -d $default_json->{sources} . '/' . $json->{name}){
+		gitPull $json->{name}, $json->{branch}, $json->{tag};
+	}
+	else{
+		gitClone $json->{name}, $json->{repository}, $json->{branch}, $json->{tag};
+	}
+	#build
+}
+
+sub loadJson{
+	my ($fname) = @_;
+	print "fname=$fname\n";
+	my $olds = $/;
+	local $/=undef;
+	open my $fd, '<', $fname or die "unable to open $fname\n$!\n";
+	my $sjs = <$fd>;
+	$/ = $olds;
+	return decode_json $sjs;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
