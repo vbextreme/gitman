@@ -1,5 +1,5 @@
-# gscm v0.0
-Git Source Code Manager</br>
+# gitman v0.0
+Git Manager</br>
 Released under GPL v3
 
 ## Revision
@@ -8,7 +8,7 @@ Released under GPL v3
 ## How To
 ### Install
 ```
-$ git clone https://github.com/vbextreme/gscm.git
+$ git clone https://github.com/vbextreme/gitman.git
 $ TODO
 ```
 
