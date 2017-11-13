@@ -3,16 +3,17 @@
 	"name":"fish-shell",
 	"tag":"",
 	"branch":"master",
-	"dependency":{
+	"dependencies":{
 		"fedora":["ncurses-dev"],
-		"debian":["libncurses-dev"],
-		"ubuntu":["libncurses-dev"]
+		"debian":["libncurses5-dev","autoconf*"],
+		"ubuntu":["libncurses5-dev"]
 	},
 	"build": {
-		"common":["./autoreconf --no-recursive",
-			 "./configure",
-			 "./make -j $DEFAULT_JOBS"
-			 ]
+		"default":[
+			"autoreconf --no-recursive",
+			"./configure",
+			"make -j$DEFAULT_JOBS"
+			]
 	},
 	"install":{
 		"common":["make install"]

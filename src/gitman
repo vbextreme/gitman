@@ -165,9 +165,77 @@ sub install{
 	my $dpm = $self->{dpm}->{$self->{distro}};
     my $pmi = $self->{pmi}->{$dpm};
 	my $inl = join(' ',@pk);
-	
 	system("$dpm $pmi $inl");
 	die "fail to install dependency\n" if $?;
+}
+
+1;
+
+###############################################################################
+###############################################################################
+################################ BUILD SYSTEM #################################
+###############################################################################
+###############################################################################
+
+package GMBUILD;
+use strict;
+use warnings;
+
+sub new{
+    my $class = shift;
+	my $distro = shift;
+    
+    my $self = {
+		c_flags => undef,
+		jobs => undef,
+		pre => undef,
+		cmd => undef,
+		post => undef,
+		clean => undef,
+		path => undef
+    };
+           
+    bless $self, $class;
+    return $self;
+}
+
+sub setBuild{
+	my ($self, $act, @lst) = @_;
+	$self->{$act} = \@lst if scalar @lst;
+}
+
+sub _eval_line{
+	my ($self, $line) = @_;
+	my $jobs = $self->{jobs};
+	$line =~ s/\$DEFAULT_JOBS/$jobs/;
+	print "EXEC $line\n";
+	system($line);
+	die "fail to build\n$line\n" if $?;
+}
+
+sub _eval_script{
+	my ($self, $trg) = @_;
+	foreach my $line (@{$self->{$trg}}){
+		$self->_eval_line($line);
+	}
+}
+
+sub build{
+	my ($self) = @_;
+	my $dir = getcwd();
+	chdir($self->{path});
+	$self->_eval_script('pre') if defined $self->{pre};
+	$self->_eval_script('cmd') if defined $self->{cmd};
+	$self->_eval_script('post') if defined $self->{post};
+	chdir($dir);
+}
+
+sub clean{
+	my ($self) = @_;
+	my $dir = getcwd();
+	chdir($self->{path});
+	$self->_eval_script('clean') if defined $self->{clean};
+	chdir($dir);
 }
 
 1;
@@ -183,12 +251,13 @@ use warnings;
 use Cwd;
 use JSON;
 
-my $GITMAN_DIR = '/etc/gitman';
+#my $GITMAN_DIR = '/etc/gitman';
+my $GITMAN_DIR = '/home/vbextreme/project/gitman/conf';
 my $GITMAN_CONFIG = "$GITMAN_DIR/config.json";
 
 my %OPT = (
 	help => \&gmUsage,
-	dependency => \&gmDependency,
+	dependencies => \&gmDependencies,
 	upgrade => \&gmUpgrade
 );
 
@@ -213,33 +282,50 @@ sub depsInstall{
 	my $localDistro = $config->{distro};
 	unless (exists $hdep->{$localDistro}){
 		$localDistro = 'common' ;
-		die "unable to get dependency\n" unless exists $hdep->{$localDistro};
+		die "unable to get dependencies\n" unless exists $hdep->{$localDistro};
 	}
-	$pm->install(@{$hdep->{localDistro}});
+	$pm->install(@{$hdep->{$localDistro}});
 }
 
-sub gmDependency{
+sub gmDependencies{
 	gmUsage() unless defined $ARGV[1];
-	my ($fjson) = $ARGV[1];
-	my $json = loadJson($config->{repoprefix} . "/${fjson}.json");
-	depsInstall($json->{dependency}) if $json->{dependency};
+	my $fjson = findJson($ARGV[1],$GITMAN_DIR);
+	die "package $ARGV[1] not exists\n" unless defined $fjson;
+	my $json = loadJson($fjson);
+	depsInstall($json->{dependencies}) if $json->{dependencies};
 }
 
 sub gmUpdate{
 	my $git = GIT->new();
-	$git->{name} = $->{name};
-	$git->{repository} = $->{repository};
-	$git->{branch} = $->{branch};
-	$git->{tag} = $->{tag};
-	$git->{prefix} = $GITMAN_DIR;
+	
+	foreach my $repo ( @{$config->{repository}} ){
+		$git->{name} = $repo->{name};
+		$git->{repository} = $repo->{url};
+		$git->{branch} = $repo->{branch};
+		$git->{tag} = $repo->{tag};
+		$git->{prefix} = $GITMAN_DIR;
+		$git->upgrade(1);
+	}
+}
 
-	$git->upgrade 1;
+sub gmBuild{
+	my ($json,$pretarget,$target,$posttarget) = @_;
+	my $mk = GMBUILD->new();
+	#target x64 arm default user
+	$mk->{path} = $config->{sources} . '/' . $json->{name};
+	$mk->{jobs} = $config->{jobs};
+	$mk->setBuild('pre',@{$json->{build}->{$pretarget}}) if $pretarget and exists $json->{$pretarget} and $json->{build}->{$pretarget} ne '';
+	$mk->setBuild('cmd',@{$json->{build}->{$target}}) if $target and exists $json->{build}->{$target} and $json->{build}->{$target} ne '';
+	$mk->setBuild('post',@{$json->{build}->{$posttarget}}) if $posttarget and exists $json->{build}->{$posttarget} and $json->{build}->{$posttarget} ne '';
+	$mk->setBuild('clean',@{$json->{build}->{clean}}) if exists $json->{build}->{clean} and $json->{build}->{clean} ne '';
+	$mk->build();
 }
 
 sub gmUpgrade{
 	gmUsage() unless defined $ARGV[1];
-	my ($fjson) = $ARGV[1];
-	my $json = loadJson($config->{repoprefix} . "/${fjson}.json");
+	my $fjson = findJson($ARGV[1],$GITMAN_DIR);
+	die "package $ARGV[1] not exists\n" unless defined $fjson;
+	my $json = loadJson($fjson);
 	
 	my $git = GIT->new();
 	$git->{name} = $json->{name};
@@ -247,10 +333,11 @@ sub gmUpgrade{
 	$git->{branch} = $json->{branch};
 	$git->{tag} = $json->{tag};
 	$git->{prefix} = $config->{sources};
-
-	$git->upgrade;
+	#$git->upgrade;
 
 	#build
+	##get pre/post/target = user if defined or arch or default
+	gmBuild($json, 'pre', 'default', 'post');
 }
 
 ##############################################################################
@@ -259,9 +346,19 @@ sub gmUpgrade{
 ##############################################################################
 ##############################################################################
 
+sub findJson{
+	my ($search, $path) = @_;
+	opendir my $dir, $path or die "can't open directory $path\n$!\n";
+	while ( (my $fname=readdir($dir) )){
+		next if ( $fname =~ /^\./ );
+		return "$path/$fname" if "$search.json" eq $fname;
+		return $fname if -d "$path/$fname" and defined ($fname=findJson($search, "$path/$fname"));
+	}
+	return undef
+} 
+
 sub loadJson{
 	my ($fname) = @_;
-	print "fname=$fname\n";
 	my $olds = $/;
 	local $/=undef;
 	open my $fd, '<', $fname or die "unable to open $fname\n$!\n";
