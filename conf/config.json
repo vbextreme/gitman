@@ -1,0 +1,14 @@
+{
+	"repository":[ 
+		{ 
+			"url":"github", 
+			"name":"main",
+			"branch":"master",
+			"tag":""
+		}
+	],
+	"repoprefix":"/home/vbextreme/project/gitman/src",
+	"sources":"/home/vbextreme/sources",
+	"distro":"",
+	"jobs":""
+}

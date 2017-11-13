@@ -25,12 +25,166 @@ License gplv3
 
 =cut
 
+###############################################################################
+###############################################################################
+################################ PACKAGE GIT ##################################
+###############################################################################
+###############################################################################
+
+package GIT;
+use strict;
+use warnings;
+use Cwd;
+
+sub new{
+    my $class = shift;
+    
+    my $self = {
+		repository => undef,
+		remote => 'origin',
+		branch => 'master',
+		tag => undef,
+		prefix => undef,
+		name => undef,
+		backdir => undef
+    };
+    
+                
+    bless $self, $class;
+    return $self;
+}    
+
+sub _saveDir{
+	my ($self) = @_;
+	$self->{backdir} = getcwd;
+}
+
+sub _restoreDir{
+	my ($self) = @_;
+	chdir $self->{backdir};
+}
+
+sub _toPrefix{
+	my ($self) = @_;
+	chdir $self->{prefix}  or die "prefix $self->{sources} not exists\n";
+}
+
+sub _toRepo{
+	my ($self) = @_;
+	my $dir = $self->{prefix} . '/' . $self->{name};
+	chdir $dir or die "directory $dir not exists\n";
+}
+
+sub clone{
+	my ($self) = @_;
+	$self->_saveDir;
+	$self->_toPrefix;
+	system("git clone -b $self->{branch} $self->{repository} $self->{name}");
+	die "fail git clone $self->{repository}\n" if $?;
+	if (defined $self->{tag} && $self->{tag} ne ''){
+		$self->_toRepo;
+		system("git checkout tags/$self->{tag}");
+		die "fail git tags $self->{repository}\n" if $?;
+	}
+	$self->_restoreDir;
+}
+
+sub fork{
+	my ($self) = @_;
+	$self->_saveDir;
+	$self->_toPrefix;
+	system("git clone -b $self->{branch} $self->{repository} $self->{name}");
+	die "fail git fork $self->{repository}\n" if $?;
+	if (defined $self->{tag} && $self->{tag} ne ''){
+		$self->_toRepo;
+		system("git checkout tags/$self->{tag}");
+		die "fail git tags $self->{repository}\n" if $?;
+	}
+	$self->_restoreDir;
+}
+
+sub pull{
+	my ($self) = @_;
+	$self->_saveDir;
+	$self->_toRepo;
+	system("git pull origin $self->{branch}");
+	die "fail git pull $self->{name}\n" if $?;
+	$self->_restoreDir;
+}
+
+sub upgrade{
+	my ($self, $fork) = @_;
+	if( -d $self->{prefix} . '/' . $self->{name}){
+		$self->pull;
+	}
+	else{
+		if ( defined $fork ){
+			$self->fork;
+		}
+		$self->clone;
+	}
+}
+
+1;
+
+###############################################################################
+###############################################################################
+############################## PACKAGE MANAGER ################################
+###############################################################################
+###############################################################################
+
+package PMAN;
+use strict;
+use warnings;
+
+sub new{
+    my $class = shift;
+	my $distro = shift;
+    
+    my $self = {
+		dpm => {
+			fedora => 'dnf',
+			ubuntu => 'apt',
+			debian => 'apt',
+			arch => 'pacman'
+		},
+		pmi => { 
+			dnf => 'install',
+			apt => 'install',
+			pacman => '-S'
+		},
+		distro => $distro
+    };
+           
+    bless $self, $class;
+    return $self;
+}    
+
+sub install{
+	my ($self, @pk) = @_;
+	my $dpm = $self->{dpm}->{$self->{distro}};
+    my $pmi = $self->{pmi}->{$dpm};
+	my $inl = join(' ',@pk);
+	
+	system("$dpm $pmi $inl");
+	die "fail to install dependency\n" if $?;
+}
+
+1;
+
+##############################################################################
+##############################################################################
+################################# GITMAN #####################################
+##############################################################################
+##############################################################################
+
 use strict;
 use warnings;
 use Cwd;
 use JSON;
 
 my $GITMAN_DIR = '/etc/gitman';
+my $GITMAN_CONFIG = "$GITMAN_DIR/config.json";
 
 my %OPT = (
 	help => \&gmUsage,
@@ -38,20 +192,9 @@ my %OPT = (
 	upgrade => \&gmUpgrade
 );
 
-my %DISTROPM = ( 
-	fedora => 'dnf',
-	debian => 'apt-get',
-	ubuntu => 'apt-get'
-);
-
-my %PM_INSTALL = ( 
-	fedora => 'install',
-	debian => 'install',
-	ubuntu => 'install'
-);
-
-
-my $default_json = loadJson("default.json");
+my $config = loadJson($GITMAN_CONFIG);
+$config->{distro} = distroName() if not exists $config->{distro} or $config->{distro} eq '';
+$config->{jobs} = ncore() + 1 if not exists $config->{jobs} or $config->{jobs} eq '';
 
 push @ARGV, 'help' if scalar @ARGV < 1;
 
@@ -66,67 +209,55 @@ sub gmUsage{
 
 sub depsInstall{
 	my ($hdep) = @_;
-	
-	my $localDistro = $default_json->{distro};
+	my $pm = PMAN->new($config->{distro}); 
+	my $localDistro = $config->{distro};
 	unless (exists $hdep->{$localDistro}){
 		$localDistro = 'common' ;
 		die "unable to get dependency\n" unless exists $hdep->{$localDistro};
 	}
-	
-	my $si;
-	foreach (@{$hdep->{$localDistro}}){
-		$si .= " $_";
-	}
-	$si = $DISTROPM{$default_json->{distro}} . ' ' . $PM_INSTALL{$default_json->{distro}} . $si;
-	
-	local $/=undef;
-	system($si);
-	die "fail to install dependency\nreturn:$?\n" if $?;
+	$pm->install(@{$hdep->{localDistro}});
 }
 
 sub gmDependency{
 	gmUsage() unless defined $ARGV[1];
 	my ($fjson) = $ARGV[1];
-	my $json = loadJson($default_json->{repository_local} . "/${fjson}.json");
+	my $json = loadJson($config->{repoprefix} . "/${fjson}.json");
 	depsInstall($json->{dependency}) if $json->{dependency};
 }
 
-sub gitClone{
-	my ($name,$repo,$branch,$tag) = @_;
-	my $dir = getcwd;
-	chdir $default_json->{sources} or die "fail to enter in " . "$default_json->{sources}\n";
-	system("git clone -b $branch $repo");
-	die "fail git clone $repo\nreturn:$?\n" if $?;
-	if (defined $tag && $tag ne ''){
-		chdir $default_json->{sources} . "/$name" or die "fail to enter in " . $default_json->{sources} . "/$name\n";
-		system("git checkout tags/$tag");
-		die "fail git tags $repo\nreturn:$?\n" if $?;
-	}
-	chdir $dir;
-}
+sub gmUpdate{
+	my $git = GIT->new();
+	$git->{name} = $->{name};
+	$git->{repository} = $->{repository};
+	$git->{branch} = $->{branch};
+	$git->{tag} = $->{tag};
+	$git->{prefix} = $GITMAN_DIR;
 
-sub gitPull{
-	my ($name,$branch) = @_;
-	my $dir = getcwd;
-	chdir $default_json->{sources} . "/$name" or die "fail to enter in " . $default_json->{sources} . "/$name\n";
-	system("git pull origin $branch");
-	die "fail git pull $name\nreturn:$?\n" if $?;
-	chdir $dir;
+	$git->upgrade 1;
 }
 
 sub gmUpgrade{
 	gmUsage() unless defined $ARGV[1];
 	my ($fjson) = $ARGV[1];
-	my $json = loadJson($default_json->{repository_local} . "/${fjson}.json");
+	my $json = loadJson($config->{repoprefix} . "/${fjson}.json");
 	
-	if( -d $default_json->{sources} . '/' . $json->{name}){
-		gitPull $json->{name}, $json->{branch}, $json->{tag};
-	}
-	else{
-		gitClone $json->{name}, $json->{repository}, $json->{branch}, $json->{tag};
-	}
+	my $git = GIT->new();
+	$git->{name} = $json->{name};
+	$git->{repository} = $json->{repository};
+	$git->{branch} = $json->{branch};
+	$git->{tag} = $json->{tag};
+	$git->{prefix} = $config->{sources};
+
+	$git->upgrade;
+
 	#build
 }
+
+##############################################################################
+##############################################################################
+################################## INUTILITY #################################
+##############################################################################
+##############################################################################
 
 sub loadJson{
 	my ($fname) = @_;
@@ -139,18 +270,17 @@ sub loadJson{
 	return decode_json $sjs;
 }
 
+sub distroName{
+	my $osr = '/etc/os-release';
+	die "can't recognize distro\n" unless -f $osr;
+	open my $fd, '<', $osr or die "cant open $osr\n$!\n";
+	while( <$fd> ){
+		return $1 if /ID=([a-z]+)/;
+	}
+	die "can't get distro id\n";
+}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+sub ncore{
+	open my $fd, '<', '/proc/cpuinfo' or die "fail to open cpuinfo\n$!\n";
+	return scalar(map /^processor/, <$fd>);
+}
