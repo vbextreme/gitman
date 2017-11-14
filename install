@@ -1,4 +1,4 @@
-#!/usr/env bash
+#!/usr/bin/env bash
 
 [[ ! -d /etc/gitman ]] && mkdir /etc/gitman
 cp ./conf/config.json /etc/gitman/config.json

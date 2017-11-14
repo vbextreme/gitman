@@ -6,7 +6,7 @@ our $VERSION = 0.0;
 
 =head1 NAME
 
-gitman v$VERSION
+gitman
 
 =head2 SYNOPSIS
 
@@ -17,6 +17,13 @@ fedora perl-json
 debian/ubuntu libjson-perl
 
 =head2 USAGE
+
+=head2 TODO
+add base directory for repository /etc/gitman/repo
+gitman enable <package>
+	cp /etc/gitman/repo/<repo>/<package> /etc/gitman/enabled/<repo>/<package>
+
+
 
 =head2 COPYRIGHT
 
@@ -120,6 +127,7 @@ sub upgrade{
 	else{
 		if ( defined $fork ){
 			$self->fork;
+			return;
 		}
 		$self->clone;
 	}
@@ -244,8 +252,10 @@ my $GITMAN_CONFIG = "$GITMAN_DIR/config.json";
 
 my %OPT = (
 	help => \&gmUsage,
-	dependencies => \&gmDependencies,
-	upgrade => \&gmUpgrade
+	depends => \&gmDependencies,
+	update => \&gmUpdate,
+	upgrade => \&gmUpgrade,
+	search => \&gmSearch
 );
 
 my $config = loadJson($GITMAN_CONFIG);
@@ -280,7 +290,7 @@ sub gmDependencies{
 	my $fjson = findJson($ARGV[1],$GITMAN_DIR);
 	die "package $ARGV[1] not exists\n" unless defined $fjson;
 	my $json = loadJson($fjson);
-	depsInstall($json->{dependencies}) if $json->{dependencies};
+	depsInstall($json->{depends}) if $json->{depends};
 }
 
 sub gmUpdate{
@@ -292,8 +302,14 @@ sub gmUpdate{
 		$git->{branch} = $repo->{branch};
 		$git->{tag} = $repo->{tag};
 		$git->{prefix} = $GITMAN_DIR;
-		$git->upgrade(1);
+		$git->upgrade();
 	}
+}
+
+sub gmSearch{
+	gmUsage() unless defined $ARGV[1];
+	my @lst = searchPattern($ARGV[1],$GITMAN_DIR);
+	map { print "$_\n" } @lst;
 }
 
 sub gmBuild{
@@ -335,6 +351,27 @@ sub gmUpgrade{
 ################################## INUTILITY #################################
 ##############################################################################
 ##############################################################################
+
+sub searchPattern{
+	my ($pattern, @paths) = @_;
+	$pattern = qr($pattern);
+	my @match;
+
+	while( @paths ){
+		my $path = pop @paths;
+		opendir my $dir, $path or die "can't open directory $path\n$!\n";
+		while ( (my $fname=readdir($dir) )){
+			next if ( $fname =~ /^\./ );
+			if ( -d "$path/$fname" ){
+				push @paths, "$path/$fname";
+				next;
+			}
+			push @match, $fname if $fname =~ /$pattern/;
+		}
+		closedir $dir;
+	}
+	return @match;
+}
 
 sub findJson{
 	my ($search, $path) = @_;
