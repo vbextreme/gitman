@@ -188,20 +188,17 @@ sub new{
     my $self = {
 		c_flags => undef,
 		jobs => undef,
-		pre => undef,
 		cmd => undef,
-		post => undef,
-		clean => undef,
 		path => undef
     };
-           
+
     bless $self, $class;
     return $self;
 }
 
 sub setBuild{
-	my ($self, $act, @lst) = @_;
-	$self->{$act} = \@lst if scalar @lst;
+	my ($self, @lst) = @_;
+	push @{$self->{cmd}}, @lst if scalar @lst;
 }
 
 sub _eval_line{
@@ -224,17 +221,7 @@ sub build{
 	my ($self) = @_;
 	my $dir = getcwd();
 	chdir($self->{path});
-	$self->_eval_script('pre') if defined $self->{pre};
 	$self->_eval_script('cmd') if defined $self->{cmd};
-	$self->_eval_script('post') if defined $self->{post};
-	chdir($dir);
-}
-
-sub clean{
-	my ($self) = @_;
-	my $dir = getcwd();
-	chdir($self->{path});
-	$self->_eval_script('clean') if defined $self->{clean};
 	chdir($dir);
 }
 
@@ -251,9 +238,9 @@ use warnings;
 use Cwd;
 use JSON;
 
-#my $GITMAN_DIR = '/etc/gitman';
-my $GITMAN_DIR = '/home/vbextreme/project/gitman/conf';
+my $GITMAN_DIR = '/etc/gitman';
 my $GITMAN_CONFIG = "$GITMAN_DIR/config.json";
+
 
 my %OPT = (
 	help => \&gmUsage,
@@ -264,6 +251,7 @@ my %OPT = (
 my $config = loadJson($GITMAN_CONFIG);
 $config->{distro} = distroName() if not exists $config->{distro} or $config->{distro} eq '';
 $config->{jobs} = ncore() + 1 if not exists $config->{jobs} or $config->{jobs} eq '';
+$config->{sources} = pathNormalize($config->{sources});
 
 push @ARGV, 'help' if scalar @ARGV < 1;
 
@@ -309,15 +297,14 @@ sub gmUpdate{
 }
 
 sub gmBuild{
-	my ($json,$pretarget,$target,$posttarget) = @_;
+	my ($json,@target) = @_;
 	my $mk = GMBUILD->new();
 	#target x64 arm default user
 	$mk->{path} = $config->{sources} . '/' . $json->{name};
 	$mk->{jobs} = $config->{jobs};
-	$mk->setBuild('pre',@{$json->{build}->{$pretarget}}) if $pretarget and exists $json->{$pretarget} and $json->{build}->{$pretarget} ne '';
-	$mk->setBuild('cmd',@{$json->{build}->{$target}}) if $target and exists $json->{build}->{$target} and $json->{build}->{$target} ne '';
-	$mk->setBuild('post',@{$json->{build}->{$posttarget}}) if $posttarget and exists $json->{build}->{$posttarget} and $json->{build}->{$posttarget} ne '';
-	$mk->setBuild('clean',@{$json->{build}->{clean}}) if exists $json->{build}->{clean} and $json->{build}->{clean} ne '';
+	foreach my $t (@target){
+		$mk->setBuild(@{$json->{build}->{$t}}) if $t and exists $json->{build}->{$t} and $json->{build}->{$t} ne '';
+	}
 	$mk->build();
 }
 
@@ -326,18 +313,21 @@ sub gmUpgrade{
 	my $fjson = findJson($ARGV[1],$GITMAN_DIR);
 	die "package $ARGV[1] not exists\n" unless defined $fjson;
 	my $json = loadJson($fjson);
-	
+	my (@target) = @ARGV[2,scalar @ARGV] if scalar @ARGV > 2;
+	push @target, 'default' unless scalar @target;
+
 	my $git = GIT->new();
 	$git->{name} = $json->{name};
 	$git->{repository} = $json->{repository};
 	$git->{branch} = $json->{branch};
 	$git->{tag} = $json->{tag};
 	$git->{prefix} = $config->{sources};
-	#$git->upgrade;
+	$git->upgrade;
 
 	#build
 	##get pre/post/target = user if defined or arch or default
-	gmBuild($json, 'pre', 'default', 'post');
+	gmBuild($json, 'clean');
+	gmBuild($json, @target);
 }
 
 ##############################################################################
@@ -381,3 +371,21 @@ sub ncore{
 	open my $fd, '<', '/proc/cpuinfo' or die "fail to open cpuinfo\n$!\n";
 	return scalar(map /^processor/, <$fd>);
 }
+
+sub pathback{
+	my ($path) = @_;
+	$path =~ s/(.*)\/.*$/$1/;
+	return $path ne '' ? $path : undef;
+}
+
+sub pathNormalize{
+	my ($path) = @_;
+	my $loc = getcwd();
+	my $bk = pathback($loc);
+	my $home = $ENV{HOME};
+	$path =~ s/^\~/$home/;
+	$path =~ s/\.\.\//$bk\// if defined $bk;
+	$path =~ s/\.\//$loc\// if defined $loc;
+	return $path;
+}
+

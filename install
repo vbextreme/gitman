@@ -1,0 +1,5 @@
+#!/usr/env bash
+
+[[ ! -d /etc/gitman ]] && mkdir /etc/gitman
+cp ./conf/config.json /etc/gitman/config.json
+
